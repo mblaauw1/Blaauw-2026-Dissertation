@@ -1,0 +1,159 @@
+#!/usr/bin/env python3
+"""Manage the Claude Code task list that drives the bottom-of-window PROGRESS BAR and ETA.
+
+WHY THIS EXISTS
+    `~/.claude/statusline-command.sh` builds the bar and the ETA by reading `~/.claude/tasks/<session>/*.json`
+    -- status drives the bar, `metadata.weight` drives the ETA, `metadata.progress` drives a running task's
+    own sub-count. Writing those files by hand, as a heredoc of JSON, every time the work changes is slow and
+    easy to get wrong. This is the one command that does it.
+
+USAGE
+    tasks set  "first task | second task | third task"     define the list (weights default to 1)
+    tasks set  "build:5 | verify:2 | report"               "name:weight" sets a relative effort weight
+    tasks start N                                          mark task N in progress (others stay as they are)
+    tasks done  N [N ...]                                  mark tasks completed
+    tasks next                                             complete the running task, start the next pending
+    tasks prog  N done total                               publish sub-progress for a running task
+    tasks show                                             print the list and what the statusline will render
+    tasks clear                                            remove every task (bar disappears)
+
+WEIGHTS MATTER. The ETA is weight-completed-per-second extrapolated over the weight remaining, so a list of
+equal-weight tasks makes a 40-minute render look like a 20-second edit. Give slow work a bigger number.
+
+SESSION ID comes from $CLAUDE_SESSION_ID, else --session, else the newest directory under ~/.claude/tasks.
+"""
+import glob
+import json
+import os
+import sys
+
+HOME = os.path.expanduser("~")
+ROOT = os.path.join(HOME, ".claude", "tasks")
+
+
+def session_dir(argv):
+    for i, a in enumerate(argv):
+        if a == "--session" and i + 1 < len(argv):
+            return os.path.join(ROOT, argv[i + 1])
+    sid = os.environ.get("CLAUDE_SESSION_ID")
+    if sid:
+        return os.path.join(ROOT, sid)
+    dirs = [d for d in glob.glob(os.path.join(ROOT, "*")) if os.path.isdir(d)]
+    if not dirs:
+        sys.exit("no session directory under ~/.claude/tasks and no CLAUDE_SESSION_ID")
+    # the session in use is the one whose directory was touched last
+    return max(dirs, key=os.path.getmtime)
+
+
+def load(d):
+    out = []
+    for p in sorted(glob.glob(os.path.join(d, "*.json")),
+                    key=lambda q: int(os.path.basename(q)[:-5]) if os.path.basename(q)[:-5].isdigit() else 0):
+        try:
+            t = json.load(open(p)); t["_path"] = p; out.append(t)
+        except Exception:
+            pass
+    return out
+
+
+def save(t):
+    p = t.pop("_path")
+    json.dump(t, open(p, "w"), indent=1)
+    t["_path"] = p
+
+
+def render(d):
+    ts = load(d)
+    if not ts:
+        return "(no tasks -- the bar is hidden)"
+    done = sum(1 for t in ts if t.get("status") == "completed")
+    W = 12
+    filled = int(W * done / len(ts))
+    tip = 1 if (done < len(ts) and filled < W) else 0
+    bar = "█" * filled + "▒" * tip + "░" * (W - filled - tip)
+    return f"[{bar}] {done}/{len(ts)}"
+
+
+def main():
+    argv = [a for a in sys.argv[1:] if a != "--session" and not (
+        len(sys.argv) > 2 and a == sys.argv[sys.argv.index("--session") + 1] if "--session" in sys.argv else False)]
+    d = session_dir(sys.argv[1:])
+    os.makedirs(d, exist_ok=True)
+    if not argv:
+        print(__doc__); return
+    cmd = argv[0]
+
+    if cmd == "set":
+        if len(argv) < 2:
+            sys.exit("tasks set \"a | b | c\"")
+        for p in glob.glob(os.path.join(d, "*.json")):
+            os.remove(p)
+        items = [s.strip() for s in argv[1].split("|") if s.strip()]
+        for i, s in enumerate(items, 1):
+            w = 1.0
+            if ":" in s:
+                head, tail = s.rsplit(":", 1)
+                try:
+                    w = float(tail); s = head.strip()
+                except ValueError:
+                    pass
+            json.dump({"id": str(i), "subject": s, "description": s,
+                       "activeForm": s, "status": "in_progress" if i == 1 else "pending",
+                       "blocks": [], "blockedBy": [], "metadata": {"weight": w}},
+                      open(os.path.join(d, f"{i}.json"), "w"), indent=1)
+        print(f"{len(items)} tasks set   {render(d)}")
+
+    elif cmd in ("done", "complete"):
+        ts = {t["id"]: t for t in load(d)}
+        for n in argv[1:]:
+            if n in ts:
+                ts[n]["status"] = "completed"; save(ts[n])
+        print(render(d))
+
+    elif cmd == "start":
+        ts = {t["id"]: t for t in load(d)}
+        for n in argv[1:]:
+            if n in ts:
+                ts[n]["status"] = "in_progress"; save(ts[n])
+        print(render(d))
+
+    elif cmd == "next":
+        ts = load(d)
+        run = [t for t in ts if t.get("status") == "in_progress"]
+        for t in run:
+            t["status"] = "completed"; save(t)
+        nxt = next((t for t in ts if t.get("status") == "pending"), None)
+        if nxt:
+            nxt["status"] = "in_progress"; save(nxt)
+            print(f"-> {nxt['subject']}   {render(d)}")
+        else:
+            print(f"all done   {render(d)}")
+
+    elif cmd == "prog":
+        if len(argv) < 4:
+            sys.exit("tasks prog N done total")
+        ts = {t["id"]: t for t in load(d)}
+        t = ts.get(argv[1])
+        if t:
+            t.setdefault("metadata", {})["progress"] = {"done": int(argv[2]), "total": int(argv[3])}
+            save(t)
+        print(render(d))
+
+    elif cmd == "show":
+        for t in load(d):
+            icon = {"completed": "x", "in_progress": ">", "pending": "."}.get(t.get("status"), "?")
+            w = (t.get("metadata") or {}).get("weight", 1)
+            print(f" [{icon}] {t['id']:>2s}  w={w:<5} {t['subject']}")
+        print(f"\n statusline: {render(d)}")
+
+    elif cmd == "clear":
+        for p in glob.glob(os.path.join(d, "*.json")):
+            os.remove(p)
+        print("cleared")
+
+    else:
+        sys.exit(f"unknown command {cmd!r} -- see `tasks` with no arguments")
+
+
+if __name__ == "__main__":
+    main()

@@ -1,0 +1,230 @@
+#!/usr/bin/env python3
+"""Identify the figures she pasted into a feedback document — correctly, first try.
+
+    idfigs snapshot                 freeze the decks' current state (RUN THIS FIRST, before any edit)
+    idfigs match <doc.pdf>          identify every pasted object against that frozen state
+    idfigs match <doc.pdf> --now    match against the CURRENT decks instead (only if nothing has changed)
+
+WHY THE ORDER MATTERS, AND WHY THIS TOOL EXISTS
+    Her feedback documents contain art COPIED AND PASTED STRAIGHT OUT OF THE .ai, not screenshots
+    (her, 2026-08-19). That makes identity measurable rather than arguable — a paste preserves the placed
+    item's aspect ratio exactly and carries its actual pixels, so it correlates ~0.99 with a render of the
+    same figure.
+
+    BUT ONLY WHILE THAT RENDER STILL EXISTS. On 2026-08-19 I rebuilt the figures first and identified them
+    afterwards; every rebuilt figure then scored ~0.3 against its own source image, and two figures had been
+    moved to another deck, so their artboard was reported wrong. **Snapshot, then identify, then change
+    anything.** That single ordering is what turns a half-inferred answer into a certain one.
+
+WHAT `snapshot` FREEZES
+    * every placed figure's geometry per deck (from the read-only dumps), and
+    * a raster of every placed figure's CURRENT publication render,
+    into `_claude_tmp/idfigs_snapshot/<stamp>/`. Nothing is modified.
+
+WHAT `match` PROVES, per pasted object
+    aspect  |pasted W:H  -  placed item W:H|      a direct paste agrees to <1%
+    corr    normalised cross-correlation         0.97-0.995 when the render is unchanged
+    and, where a render HAS since changed, the identification falls back to the figure's own burned-in
+    numbers (legend N, medians, strip timestamps) which `dataops/identify_pasted_strips_20260819.py` and the
+    figure's data CSV supply. THAT FALLBACK IS A REPAIR, NOT A FEATURE: a low correlation means the figure
+    was rebuilt BEFORE it was identified, which is the mistake this tool exists to prevent. Run in order and
+    every score is ~0.99.
+
+TRAPS THIS TOOL ALREADY HANDLES (each one produced a wrong answer once)
+    * `pdfimages` interleaves art and soft-masks but NOT one mask per image -> roles are read from
+      `pdfimages -list`, never inferred from file numbering, or masks get scored as art.
+    * a maskless raster keeps the page padding -> each object is scored both as-extracted and trimmed.
+    * an aspect GATE can exclude the right answer -> everything is scored against everything; aspect is
+      corroboration, not a filter.
+"""
+import glob
+import io
+import os
+import shutil
+import subprocess
+import sys
+import time
+
+ROOT = "/Volumes/4 MB"
+TMP = f"{ROOT}/_claude_tmp"
+SNAPROOT = f"{TMP}/idfigs_snapshot"
+PUB = f"{ROOT}/ablation_figures_20260625/_ai_relink/pdf_pub"
+PDF = f"{ROOT}/ablation_figures_20260625/_ai_relink/pdf"
+DECKS = ["0814", "0813supp", "newfig", "supp", "newts", "pub0814", "pub0813"]
+
+
+def _items(geom_path):
+    out = []
+    if not os.path.exists(geom_path):
+        return out
+    for ln in io.open(geom_path, encoding="utf-8", errors="replace").read().replace("\r", "\n").split("\n"):
+        f = ln.split("\t")
+        if len(f) < 12 or f[0] in ("kind", "ARTBOARD") or not f[5]:
+            continue
+        try:
+            L, T, R, B = float(f[6]), float(f[7]), float(f[8]), float(f[9])
+        except ValueError:
+            continue
+        if R - L <= 1 or T - B <= 1:
+            continue
+        out.append({"name": f[5], "ab": f[1], "aspect": (R - L) / (T - B), "layer": f[10]})
+    return out
+
+
+def snapshot():
+    stamp = time.strftime("%Y%m%d_%H%M%S")
+    d = f"{SNAPROOT}/{stamp}"
+    os.makedirs(f"{d}/ras", exist_ok=True)
+    names, n_geom = set(), 0
+    for tag in DECKS:
+        src = f"{TMP}/geom9_{tag}.tsv"
+        if not os.path.exists(src):
+            print(f"  no geometry dump for {tag} -- run ablation_plots/DUMP_ALL9_20260817.jsx first")
+            continue
+        shutil.copy2(src, f"{d}/geom_{tag}.tsv")
+        n_geom += 1
+        for it in _items(src):
+            names.add(it["name"])
+    made = 0
+    for n in sorted(names):
+        src = f"{PUB}/{n}.pdf"
+        if not os.path.exists(src):
+            src = f"{PDF}/{n}.pdf"
+        if not os.path.exists(src):
+            continue
+        out = f"{d}/ras/{n}.png"
+        if os.path.exists(out):
+            continue
+        subprocess.run(["pdftoppm", "-r", "40", "-png", "-singlefile", src, out[:-4]],
+                       check=False, capture_output=True)
+        made += 1
+    io.open(f"{SNAPROOT}/LATEST", "w").write(stamp)
+    print(f"snapshot {stamp}: {n_geom} decks, {len(names)} placed figures, {made} renders frozen\n  -> {d}")
+    print("  IDENTIFY FROM THIS before rebuilding any figure or moving anything on a deck.")
+    return d
+
+
+def latest():
+    p = f"{SNAPROOT}/LATEST"
+    if not os.path.exists(p):
+        return None
+    d = f"{SNAPROOT}/{io.open(p).read().strip()}"
+    return d if os.path.isdir(d) else None
+
+
+def match(doc, use_now=False):
+    import numpy as np, cv2
+    snap = None if use_now else latest()
+    if snap:
+        geoms = sorted(glob.glob(f"{snap}/geom_*.tsv"))
+        rasdir = f"{snap}/ras"
+        print(f"matching against the FROZEN state in {os.path.basename(snap)}")
+    else:
+        geoms = [f"{TMP}/geom9_{t}.tsv" for t in DECKS]
+        rasdir = f"{TMP}/idfigs_ras_now"; os.makedirs(rasdir, exist_ok=True)
+        print("matching against the CURRENT decks"
+              + ("" if use_now else " -- no snapshot exists, so this can only be trusted if nothing has changed"))
+    items = []
+    for g in geoms:
+        tag = os.path.basename(g).replace("geom_", "").replace("geom9_", "").replace(".tsv", "")
+        for it in _items(g):
+            it["deck"] = tag; items.append(it)
+    seen, uniq = set(), []
+    for it in items:
+        if it["name"] in seen: continue
+        seen.add(it["name"]); uniq.append(it)
+    print(f"{len(uniq)} distinct placed figures as candidates")
+
+    work = f"{TMP}/idfigs_work"; shutil.rmtree(work, ignore_errors=True); os.makedirs(work)
+    subprocess.run(["pdfimages", "-png", doc, f"{work}/img"], check=False, capture_output=True)
+    roles = []
+    for ln in subprocess.run(["pdfimages", "-list", doc], capture_output=True, text=True).stdout.splitlines()[2:]:
+        f = ln.split()
+        if len(f) >= 4 and f[0].isdigit(): roles.append((int(f[0]), f[2]))
+    files = sorted(glob.glob(f"{work}/img-*.png"))
+    if len(files) != len(roles):
+        print(f"  WARNING: {len(files)} files vs {len(roles)} listed -- roles may be misaligned")
+    art = [(p, pg) for p, (pg, t) in zip(files, roles) if t == "image"]
+    msk = {files[i - 1]: files[i] for i, (pg, t) in enumerate(roles)
+           if t == "smask" and i > 0 and roles[i - 1][1] == "image"}
+
+    def sig(im):
+        g = cv2.cvtColor(im, cv2.COLOR_BGR2GRAY) if im.ndim == 3 else im
+        g = cv2.resize(g, (160, 160), interpolation=cv2.INTER_AREA).astype(np.float32)
+        g -= g.mean()
+        return g / g.std() if g.std() > 1e-6 else None
+
+    def trim(im):
+        g = cv2.cvtColor(im, cv2.COLOR_BGR2GRAY) if im.ndim == 3 else im
+        bg = int(np.median(np.concatenate([g[0, :], g[-1, :], g[:, 0], g[:, -1]])))
+        ys, xs = np.where(np.abs(g.astype(np.int16) - bg) > 12)
+        return im if len(xs) < 50 else im[ys.min():ys.max() + 1, xs.min():xs.max() + 1]
+
+    refs = {}
+    for it in uniq:
+        png = f"{rasdir}/{it['name']}.png"
+        if not os.path.exists(png):
+            src = f"{PUB}/{it['name']}.pdf"
+            if not os.path.exists(src): src = f"{PDF}/{it['name']}.pdf"
+            if not os.path.exists(src): continue
+            subprocess.run(["pdftoppm", "-r", "40", "-png", "-singlefile", src, png[:-4]],
+                           check=False, capture_output=True)
+        im = cv2.imread(png)
+        if im is None: continue
+        s = sig(im)
+        if s is not None: refs[it["name"]] = (s, it)
+
+    objs = []
+    for p, pg in art:
+        im = cv2.imread(p)
+        if im is None: continue
+        m = msk.get(p)
+        if m:
+            mk = cv2.imread(m, cv2.IMREAD_GRAYSCALE)
+            if mk is not None and mk.shape[:2] == im.shape[:2] and (mk > 20).mean() < 0.98:
+                n, _, st, _ = cv2.connectedComponentsWithStats((mk > 20).astype(np.uint8), 8)
+                k = 0
+                for li in range(1, n):
+                    x, y, w, h, a = st[li]
+                    if w < 120 or h < 60 or a < 8000: continue
+                    objs.append((pg, k, im[y:y + h, x:x + w])); k += 1
+                continue
+        objs.append((pg, 0, im))
+
+    print(f"\n{len(objs)} pasted objects\n")
+    print(f"{'pg':>3s} {'#':>2s} {'corr':>6s} {'aspΔ':>6s}  verdict  figure  [deck / artboard]")
+    for pg, k, crop in objs:
+        best = (0.0, None, None)
+        for var in (crop, trim(crop)):
+            s = sig(var)
+            if s is None: continue
+            a = var.shape[1] / var.shape[0]
+            for nm, (g, it) in refs.items():
+                v = float((s * g).mean())
+                if v > best[0]: best = (v, it, a)
+        v, it, a = best
+        if it is None:
+            print(f"{pg:3d} {k:2d}      -  no match"); continue
+        da = abs(a - it["aspect"]) / it["aspect"]
+        verdict = "CERTAIN" if (v >= 0.90 and da <= 0.01) else ("strong" if v >= 0.78 or da <= 0.01 else "CHECK")
+        print(f"{pg:3d} {k:2d} {v:6.3f} {da*100:5.1f}%  {verdict:7s} {it['name'][:48]:50s} [{it['deck']} AB{it['ab']}]")
+    print("\nCHECK rows and any low corr: the figure was probably REBUILT since she copied it. Fall back to its")
+    print("burned-in numbers -- legend N, medians, strip timestamps -- via dataops/identify_pasted_strips_20260819.py")
+    print("and the figure's data CSV. Never settle it from the surrounding prose.")
+
+
+def main():
+    a = sys.argv[1:]
+    if not a or a[0] in ("-h", "--help"):
+        print(__doc__); return
+    if a[0] == "snapshot":
+        snapshot()
+    elif a[0] == "match":
+        if len(a) < 2: sys.exit("idfigs match <doc.pdf> [--now]")
+        match(a[1], "--now" in a)
+    else:
+        sys.exit(f"unknown command {a[0]!r}")
+
+
+if __name__ == "__main__":
+    main()

@@ -1,0 +1,44 @@
+#!/bin/bash
+# bgwait — BOUNDED wait for a background job, with STALL DETECTION. Never blocks longer than `secs`.
+#
+# USER 2026-08-06: "you just need to do a better job yourself of finding when youre hung up on something so
+# i dont have to waste time waiting for you to finish a task you designed poorly and are failing."
+#
+# So this does not just wait — it JUDGES. It returns early and says STALLED when a job is nominally
+# RUNNING but has written nothing for `stall` seconds, which is the signature of every hang so far
+# (Illustrator idling at 1.5% CPU, a builder blocked on a missing file, a poll loop watching a dead job).
+#
+#   bgwait <name> [secs=20] [stall=90]
+#
+# Prints one of: DONE / FAILED / STALLED / STILL RUNNING — and always exits 0 so it never kills a chain.
+set -u
+LOGDIR="/Volumes/4 MB/_claude_tools/logs"
+NAME="${1:?usage: bgwait <name> [secs] [stall]}"
+SECS="${2:-20}"
+STALL="${3:-90}"
+LOG="$LOGDIR/$NAME.log"; ST="$LOGDIR/$NAME.status"
+
+end=$(( $(date +%s) + SECS ))
+while [ "$(date +%s)" -lt "$end" ]; do
+  s=$(cat "$ST" 2>/dev/null || echo "?")
+  case "$s" in
+    OK)     echo "DONE [$NAME]";   tail -n 5 "$LOG" 2>/dev/null; exit 0 ;;
+    FAIL:*) echo "FAILED [$NAME] $s"; tail -n 12 "$LOG" 2>/dev/null; exit 0 ;;
+  esac
+  sleep 2
+done
+
+# still running — is it actually making progress?
+if [ -f "$LOG" ]; then
+  age=$(( $(date +%s) - $(/usr/bin/stat -f %m "$LOG") ))
+  if [ "$age" -ge "$STALL" ]; then
+    echo "STALLED [$NAME] — RUNNING but no output for ${age}s (threshold ${STALL}s). Investigate, do NOT keep waiting."
+    echo "--- last output ---"; tail -n 12 "$LOG" 2>/dev/null
+    exit 0
+  fi
+  echo "STILL RUNNING [$NAME] — progressing (${age}s since last write)"
+  tail -n 3 "$LOG" 2>/dev/null
+else
+  echo "STILL RUNNING [$NAME] — no log yet"
+fi
+exit 0

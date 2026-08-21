@@ -1,0 +1,37 @@
+#!/bin/bash
+# bgstat — one-line status for background jobs started with `bg`. Always returns instantly.
+#   bgstat            every job: STATUS, age, last log line
+#   bgstat <name>     that job + the tail of its log
+set -u
+LOGDIR="/Volumes/4 MB/_claude_tools/logs"
+[ -d "$LOGDIR" ] || { echo "no jobs"; exit 0; }
+
+one() {
+  n="$1"
+  st=$(cat "$LOGDIR/$n.status" 2>/dev/null || echo "?")
+  log="$LOGDIR/$n.log"
+  if [ -f "$log" ]; then
+    age=$(( $(date +%s) - $(/usr/bin/stat -f %m "$log") ))
+    last=$(tail -n 1 "$log" 2>/dev/null | cut -c1-90)
+    lines=$(wc -l < "$log" | tr -d ' ')
+  else
+    age=0; last=""; lines=0
+  fi
+  printf '%-10s %-28s %4ds since write  %5s lines  %s\n' "$st" "$n" "$age" "$lines" "$last"
+}
+
+if [ $# -ge 1 ]; then
+  one "$1"
+  echo "--- tail ---"
+  tail -n 12 "$LOGDIR/$1.log" 2>/dev/null
+else
+  found=0
+  for f in "$LOGDIR"/*.status; do
+    [ -e "$f" ] || continue
+    found=1
+    b=$(basename "$f" .status)
+    one "$b"
+  done
+  [ $found -eq 0 ] && echo "no jobs"
+fi
+exit 0

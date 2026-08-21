@@ -1,0 +1,22 @@
+{
+  "_why": "THE one place the live deck paths are written down. She renames and re-saves decks as she works (2026-08-19 supplemental.ai -> other.ai; 2026-08-20 the two PUBLICATION decks and other.ai -> *_20260820), and every time, a path hardcoded in a dozen scripts becomes a silent pointer to a retired file that still opens and still looks plausible. Anything live reads this; historical one-off JSX keep their own literals and are archives, not tools.",
+  "_updated": "2026-08-20",
+  "decks": [
+    {"tag": "0814",     "role": "main working",              "path": "/Volumes/4 MB/1_DECKS/META_FIGURES_20260814.ai"},
+    {"tag": "0813supp", "role": "supplemental working",      "path": "/Volumes/4 MB/1_DECKS/META_FIGURES_20260813_supplemental.ai"},
+    {"tag": "newfig",   "role": "new figures",               "path": "/Volumes/4 MB/1_DECKS/NEW_FIGURES_20260804.ai"},
+    {"tag": "supp",     "role": "other",                     "path": "/Volumes/4 MB/1_DECKS/other_20260820.ai"},
+    {"tag": "newts",    "role": "timestrips",                "path": "/Volumes/4 MB/1_DECKS/NEW_TIMESTRIPS_20260804.ai"},
+    {"tag": "pub0814",  "role": "main PUBLICATION",          "path": "/Volumes/4 MB/1_DECKS/META_FIGURES_20260814_PUBLICATION_20260820.ai"},
+    {"tag": "pub0813",  "role": "supplemental PUBLICATION",  "path": "/Volumes/4 MB/1_DECKS/META_FIGURES_20260813_supplemental_PUBLICATION_20260820.ai"},
+    {"tag": "repeats",  "role": "repeated figures",          "path": "/Volumes/4 MB/1_DECKS/repeated figures 081726.ai"}
+  ],
+  "retired": [
+    {"path": "/Volumes/4 MB/_retired/decks_superseded_20260820/META_FIGURES_20260814_PUBLICATION.ai",
+     "superseded_by": "META_FIGURES_20260814_PUBLICATION_20260820.ai", "on": "2026-08-20"},
+    {"path": "/Volumes/4 MB/_retired/decks_superseded_20260820/META_FIGURES_20260813_supplemental_PUBLICATION.ai",
+     "superseded_by": "META_FIGURES_20260813_supplemental_PUBLICATION_20260820.ai", "on": "2026-08-20"},
+    {"path": "/Volumes/4 MB/_retired/decks_superseded_20260820/other.ai",
+     "superseded_by": "other_20260820.ai", "on": "2026-08-20"}
+  ]
+}

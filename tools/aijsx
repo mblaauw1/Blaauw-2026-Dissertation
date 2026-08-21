@@ -1,0 +1,18 @@
+#!/usr/bin/env bash
+# Run an Illustrator JSX -- but REFUSE while the deck halt is on.
+#
+# USER 2026-08-20: she works in the .ai files and must not have Illustrator restarted or her document
+# changed underneath her. Discipline alone is not enough across a /clear, so every JSX pass goes through
+# this gate. If it refuses, that is correct: queue the work with `deckhalt queue` and wait for the all-clear.
+#
+#   aijsx /Volumes/4\ MB/ablation_plots/SOME_PASS.jsx
+set -euo pipefail
+FLAG="/Volumes/4 MB/_claude_tmp/DECK_HALT"
+if [ -f "$FLAG" ]; then
+  echo "REFUSED: deck halt is ON (since $(cat "$FLAG"))." >&2
+  echo "  She is working in the Illustrator files. Do not open, save or place anything." >&2
+  echo "  Queue it instead:  deckhalt queue \"<figure>\" \"<deck>\" \"<artboard>\" \"<why>\"" >&2
+  exit 3
+fi
+[ $# -ge 1 ] || { echo "usage: aijsx <script.jsx>" >&2; exit 2; }
+exec osascript -e "tell application id \"com.adobe.illustrator\" to do javascript file \"$1\""

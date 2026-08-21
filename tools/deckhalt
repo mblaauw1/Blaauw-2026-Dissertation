@@ -1,0 +1,133 @@
+#!/usr/bin/env python3
+"""Freeze every process that could disturb her while she works in the Illustrator files.
+
+    deckhalt on            start the freeze  (she is opening the .ai files)
+    deckhalt status        is it on, and what is waiting
+    deckhalt queue "<fig>" "<deck>" "<artboard>" "<why>"      record a figure that will need placing
+    deckhalt promote       DRY RUN: what the all-clear would copy and place
+    deckhalt promote --go  do it: copy staged renders over the live linked files
+    deckhalt off           end the freeze (does NOT promote; run promote --go first)
+
+HER REQUEST, 2026-08-20:
+    "i need to open the adobe illustrator files and work on them undisturbed by your direct processes to
+     update/replace/place figures causing restart of adobe illustrator, or by the popups that say a figure
+     has been updated elsewhere and asking me if i want to update the version in whatever im working on ...
+     once i give you the all-clear, you should have all of these figures from the feedback during this
+     update-halt period ready to go/already made and essentially just standing by."
+
+TWO SOURCES OF DISTURBANCE, and stopping only the obvious one is not enough:
+  1. a JSX pass that OPENS or SAVES a .ai -- forbidden by discipline while the flag is on.
+  2. RE-RENDERING A LINKED ASSET. Illustrator watches its links, so overwriting `_ai_relink/pdf/<fig>.pdf`
+     raises the "modified elsewhere, update?" prompt even though no script touched her document. While the
+     flag is on, `lib.stage_path()` sends every figure output into `_ai_relink/_staging/` instead, so
+     builders keep running and nothing she has open changes underneath her.
+
+WHAT KEEPS WORKING DURING THE FREEZE: building figures, reading them back to check them, statistics,
+PLOT_SETTINGS and the data CSVs, every audit that only READS the decks' geometry dumps. Only the linked
+assets and the .ai files are off limits.
+"""
+import json, os, shutil, subprocess, sys, time
+
+FLAG = "/Volumes/4 MB/_claude_tmp/DECK_HALT"
+QUEUE = "/Volumes/4 MB/_claude_tmp/DECK_PENDING.json"
+FIG = "/Volumes/4 MB/ablation_figures_20260625"
+STAGE = f"{FIG}/_ai_relink/_staging"
+
+
+def _q():
+    try:
+        return json.load(open(QUEUE))
+    except Exception:
+        return {"items": []}
+
+
+def _save(q):
+    json.dump(q, open(QUEUE, "w"), indent=1)
+
+
+def staged_files():
+    out = []
+    for root, _, files in os.walk(STAGE):
+        for f in files:
+            p = os.path.join(root, f)
+            out.append((p, os.path.join(FIG, os.path.relpath(p, STAGE))))
+    return sorted(out)
+
+
+def on():
+    os.makedirs(os.path.dirname(FLAG), exist_ok=True)
+    open(FLAG, "w").write(time.strftime("%Y-%m-%d %H:%M:%S"))
+    print("DECK HALT ON — she is working in the .ai files.")
+    print("  * no JSX, no opening/saving any .ai, no placement passes")
+    print("  * every figure render is redirected to _ai_relink/_staging, so no linked file changes")
+    print("  * queue anything that will need placing:  deckhalt queue <fig> <deck> <artboard> <why>")
+
+
+def off():
+    n = len(staged_files())
+    if os.path.exists(FLAG):
+        os.remove(FLAG)
+    print("DECK HALT OFF.")
+    if n:
+        print(f"  ⚠ {n} staged files have NOT been promoted — run `deckhalt promote --go` first,")
+        print("    otherwise the decks still link the OLD renders.")
+
+
+def status():
+    a = os.path.exists(FLAG)
+    print(f"DECK HALT: {'ON since ' + open(FLAG).read().strip() if a else 'off'}")
+    sf = staged_files()
+    print(f"  staged renders waiting to be promoted: {len(sf)}")
+    q = _q()["items"]
+    print(f"  figures queued for placement on all-clear: {len(q)}")
+    for it in q:
+        print(f"     {it['figure'][:44]:46s} -> {it['deck']} AB{it['artboard']}   {it['why'][:44]}")
+
+
+def queue(fig, deck, ab, why):
+    q = _q()
+    q["items"] = [i for i in q["items"] if i["figure"] != fig] + [
+        {"figure": fig, "deck": deck, "artboard": ab, "why": why, "queued": time.strftime("%Y-%m-%d %H:%M")}]
+    _save(q)
+    print(f"queued {fig} -> {deck} AB{ab}")
+
+
+def promote(go=False):
+    sf = staged_files()
+    if not sf:
+        print("nothing staged.")
+    print(f"{'PROMOTING' if go else 'DRY RUN'} — {len(sf)} staged files")
+    for src, dst in sf:
+        same = os.path.exists(dst) and os.path.getsize(dst) == os.path.getsize(src)
+        print(f"   {'copy' if go else 'would copy'} {os.path.relpath(dst, FIG)}{'' if not same else '   (same size)'}")
+        if go:
+            os.makedirs(os.path.dirname(dst), exist_ok=True)
+            shutil.copy2(src, dst)
+    if go and sf:
+        shutil.rmtree(STAGE, ignore_errors=True)
+        print("staging cleared.")
+    q = _q()["items"]
+    print(f"\nthen place {len(q)} figure(s):")
+    for it in q:
+        print(f"   {it['figure'][:44]:46s} -> {it['deck']} AB{it['artboard']}")
+    if not go:
+        print("\nrun `deckhalt promote --go` to copy, then the placement JSX, then `deckhalt off`.")
+
+
+def main():
+    a = sys.argv[1:]
+    if not a or a[0] in ("-h", "--help"):
+        print(__doc__); return
+    c = a[0]
+    if c == "on": on()
+    elif c == "off": off()
+    elif c == "status": status()
+    elif c == "queue":
+        if len(a) < 5: sys.exit('deckhalt queue "<figure>" "<deck>" "<artboard>" "<why>"')
+        queue(a[1], a[2], a[3], " ".join(a[4:]))
+    elif c == "promote": promote("--go" in a)
+    else: sys.exit(f"unknown command {c!r}")
+
+
+if __name__ == "__main__":
+    main()

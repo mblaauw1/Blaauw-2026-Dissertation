@@ -1,0 +1,20 @@
+# This repository is SOURCE ONLY. Data, rendered figures and Illustrator documents
+# live on the analysis drive and are deliberately not tracked here.
+__pycache__/
+*.pyc
+.DS_Store
+._*
+*.bak
+*.bak_*
+*.orig
+
+# never track outputs or data
+*.ai
+*.pdf
+*.png
+*.svg
+*.tif
+*.tiff
+*.mp4
+*.pptx
+*.xlsx

@@ -1,0 +1,383 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><title>Kinetochore outline slides</title>
+<style>
+:root{--bg:#0e0f13;--pan:#171922;--pan2:#1e2130;--line:#2e3242;--tx:#e7e9f0;--dim:#9aa0b4;
+      --ok:#38c172;--warn:#e3a008;--bad:#e3342f;--acc:#6c8cff;}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--tx);font:13px/1.45 -apple-system,Helvetica,Arial,sans-serif;
+     height:100vh;display:grid;grid-template-columns:230px 1fr 330px;overflow:hidden}
+.col{overflow:auto;height:100vh}
+#left{background:var(--pan);border-right:1px solid var(--line)}
+#right{background:var(--pan);border-left:1px solid var(--line)}
+h3{margin:0;padding:9px 11px;font-size:11px;letter-spacing:.09em;text-transform:uppercase;color:var(--dim);
+   border-bottom:1px solid var(--line);position:sticky;top:0;background:var(--pan);z-index:5}
+.bitem{padding:6px 11px;border-bottom:1px solid #21242f;cursor:pointer;font-size:12px}
+.bitem:hover{background:var(--pan2)} .bitem.on{background:#243056;color:#fff}
+.bitem .m{color:var(--dim);font-size:10.5px}
+.bitem .cnt{float:right;color:var(--ok);font-weight:600}
+#stage{position:relative;display:flex;flex-direction:column;height:100vh;background:#000}
+#bar{display:flex;gap:7px;align-items:center;padding:7px 10px;background:var(--pan);border-bottom:1px solid var(--line);flex-wrap:wrap}
+#canwrap{flex:1;position:relative;overflow:hidden;background:#000;cursor:crosshair}
+canvas{position:absolute;left:0;top:0}
+#scrub{display:flex;gap:8px;align-items:center;padding:7px 10px;background:var(--pan);border-top:1px solid var(--line)}
+#scrub input[type=range]{flex:1}
+button,select,input[type=text]{background:var(--pan2);color:var(--tx);border:1px solid var(--line);
+  border-radius:5px;padding:4px 8px;font-size:12px;cursor:pointer}
+button:hover{border-color:var(--acc)} button.on{background:var(--acc);border-color:var(--acc);color:#fff}
+button:disabled{opacity:.4;cursor:not-allowed}
+.grp{border:1px solid var(--line);border-radius:6px;margin:7px 9px;background:var(--pan2)}
+.grp.on{border-color:var(--acc)}
+.ghead{display:flex;align-items:center;gap:6px;padding:6px 8px;cursor:pointer}
+.dot{width:11px;height:11px;border-radius:50%;flex:none}
+.gname{flex:1;font-weight:600;font-size:12px}
+.gmeta{font-size:10.5px;color:var(--dim);padding:0 8px 5px}
+.tr{display:flex;gap:6px;align-items:center;font-size:11px;padding:3px 8px;border-top:1px solid #262a38}
+.tr .f{color:var(--dim);min-width:74px}
+.tr .st{margin-left:auto}
+.sv{color:var(--ok)} .un{color:var(--warn)} .er{color:var(--bad)}
+.kv{padding:5px 11px;border-bottom:1px solid #21242f;font-size:11.5px}
+.kv b{color:var(--dim);font-weight:500;display:block;font-size:10px;text-transform:uppercase;letter-spacing:.05em}
+#msg{padding:5px 10px;font-size:11.5px;background:#11131a;border-top:1px solid var(--line);min-height:24px}
+.zbox{font-size:11px;color:var(--dim)}
+kbd{background:#2a2e3d;border:1px solid #3a4055;border-radius:3px;padding:0 4px;font-size:10px}
+</style></head><body>
+
+<div id="left" class="col">
+  <h3>Batches <span id="bcount" style="float:right;text-transform:none;letter-spacing:0"></span></h3>
+  <div id="blist"></div>
+</div>
+
+<div id="stage">
+  <div id="bar">
+    <b id="bname" style="font-size:12.5px">—</b>
+    <span style="flex:1"></span>
+    <button id="chPhase">Phase</button>
+    <button id="chFluor" class="on">Fluor</button>
+    <span class="zbox">zoom <b id="zlab">1.0×</b></span>
+    <button id="zin">＋</button><button id="zout">－</button><button id="zfit">fit</button>
+    <button id="follow" title="keep the active kinetochore centred while you scrub">Follow KT</button>
+    <button id="recentre" title="centre on this group's nearest trace">Centre</button>
+    <button id="undo">Undo pt</button>
+    <button id="clr">Discard trace</button>
+  </div>
+  <div id="canwrap">
+    <canvas id="vid"></canvas><canvas id="ov"></canvas>
+  </div>
+  <div id="scrub">
+    <button id="play">▶</button>
+    <button id="pf">◀</button><button id="nf">▶|</button>
+    <input type="range" id="rng" min="0" max="0" value="0">
+    <span id="flab" style="min-width:190px;text-align:right;font-variant-numeric:tabular-nums"></span>
+  </div>
+  <div id="zwarn" style="display:none;padding:4px 10px;background:#3a1d1d;border-top:1px solid #6b2b2b;
+       font-size:11.5px;color:#ffb4b4">
+    This frame is a <b>z-slice</b>, not a timepoint — the pipeline filed a z-stack under "monitoring".
+    Traces here are tagged <code>z_slice</code>. Use <kbd>Shift</kbd>+<kbd>←/→</kbd> to skip whole z-runs.
+  </div>
+  <div id="msg">Pick a batch. Then <kbd>N</kbd> new group, drag to trace, release to save.</div>
+</div>
+
+<div id="right" class="col">
+  <h3>Groups <button id="newg" style="float:right;margin-top:-3px">+ New</button></h3>
+  <div id="glist"></div>
+  <h3>Events</h3><div id="events"></div>
+  <h3>Comments</h3><div id="comments"></div>
+</div>
+
+<script>
+const KT_TYPES=["polar","lagging","paired","sisterless","plate","unaligned","other"];
+const COLORS=["#ff5f56","#6c8cff","#38c172","#e3a008","#c678dd","#00c8d7","#ff8ab3","#9ccc65"];
+let IDX=[],B=null,META=null,ROWS=[],GROUPS=[],curG=null,curFrame=0,chan="fluor",
+    zoom=1,panX=0,panY=0,drawing=null,vid=null,playing=false,fitZ=1,followOn=false;
+
+const $=s=>document.querySelector(s);
+const cv=$("#vid"),ov=$("#ov"),ctx=cv.getContext("2d"),octx=ov.getContext("2d");
+function msg(t,cls){$("#msg").innerHTML=`<span class="${cls||''}">${t}</span>`;}
+
+/* ---------- batch list ---------- */
+fetch("/index.json").then(r=>r.json()).then(j=>{IDX=j;renderBatches();
+  const want=new URLSearchParams(location.search).get("batch");   /* deep link: ?batch=<name> */
+  const i=want?IDX.findIndex(b=>b.batch===want):-1;
+  if(i>=0)loadBatch(IDX[i].batch,document.querySelector(`.bitem[data-i="${i}"]`));
+});
+function renderBatches(){
+  $("#bcount").textContent=IDX.length;
+  $("#blist").innerHTML=IDX.map((b,i)=>
+    `<div class="bitem" data-i="${i}"><span class="cnt" id="bc${i}"></span>${b.batch}
+     <div class="m">${b.n_frames} frames · ${b.channels.join("+")}</div></div>`).join("");
+  document.querySelectorAll(".bitem").forEach(e=>e.onclick=()=>loadBatch(IDX[+e.dataset.i].batch,e));
+}
+
+/* ---------- load a batch ---------- */
+async function loadBatch(batch,el){
+  document.querySelectorAll(".bitem").forEach(e=>e.classList.remove("on"));
+  if(el)el.classList.add("on");
+  B=batch; $("#bname").textContent=batch; msg("loading…");
+  META=await (await fetch(`/pkg/${encodeURIComponent(batch)}/meta.json`)).json();
+  chan = META.channels.fluor ? "fluor" : "phase";
+  $("#chFluor").classList.toggle("on",chan==="fluor");
+  $("#chPhase").classList.toggle("on",chan==="phase");
+  /* panels first — event times and comments must never wait on an 80MB clip */
+  renderMeta();
+  await reloadRows();
+  curFrame=0; $("#rng").max=META.frames.length-1; $("#rng").value=0;
+  msg(`${META.frames.length} frames · loading movie…`);
+  await loadVideo();
+  zfit(); showFrame(0);
+  msg(`${META.frames.length} frames loaded. <kbd>N</kbd> = new group, drag to trace.`);
+}
+function loadVideo(){
+  return new Promise(res=>{
+    if(vid){vid.pause();vid.remove();}
+    vid=document.createElement("video");
+    vid.src=`/pkg/${encodeURIComponent(B)}/${META.channels[chan]}`;
+    vid.preload="auto"; vid.muted=true;
+    let done=false; const fin=()=>{if(!done){done=true;res();}};
+    vid.addEventListener("loadeddata",fin,{once:true});
+    vid.addEventListener("error",()=>{msg("movie failed to load — check the package","er");fin();},{once:true});
+    setTimeout(fin,20000);                    /* never hang the UI on a slow clip */
+    vid.load();
+  });
+}
+async function reloadRows(){            /* ALWAYS from disk — never trust local state */
+  const j=await (await fetch(`/outlines.json?batch=${encodeURIComponent(B)}`)).json();
+  ROWS=j.rows||[];
+  const seen={};
+  GROUPS=[];
+  ROWS.forEach(r=>{ if(!seen[r.group_id]){seen[r.group_id]=1;
+    GROUPS.push({id:r.group_id,label:r.group_label||"",kt_type:r.kt_type||"other"});}});
+  if(!curG&&GROUPS.length)curG=GROUPS[0].id;
+  const i=IDX.findIndex(x=>x.batch===B); if(i>=0)$("#bc"+i).textContent=ROWS.length||"";
+  renderGroups();
+}
+
+/* ---------- meta panels ---------- */
+function renderMeta(){
+  $("#events").innerHTML=(META.events||[]).map(e=>
+    `<div class="kv"><b>${e.name}</b>${e.value}</div>`).join("")||`<div class="kv">none recorded</div>`;
+  $("#comments").innerHTML=(META.comments||[]).map(c=>
+    `<div class="kv"><b>${c.col}</b>${c.text.replace(/</g,"&lt;")}</div>`).join("")||`<div class="kv">none</div>`;
+}
+function renderGroups(){
+  $("#glist").innerHTML=GROUPS.map((g,i)=>{
+    const tr=ROWS.filter(r=>r.group_id===g.id).sort((a,b)=>a.frame-b.frame||a.trace_index-b.trace_index);
+    return `<div class="grp ${g.id===curG?'on':''}" data-g="${g.id}">
+      <div class="ghead"><span class="dot" style="background:${COLORS[i%COLORS.length]}"></span>
+        <span class="gname">${g.label||("group "+g.id)}</span>
+        <select data-t="${g.id}">${KT_TYPES.map(t=>`<option ${t===g.kt_type?"selected":""}>${t}</option>`).join("")}</select>
+      </div>
+      <div class="gmeta">${tr.length} trace${tr.length==1?"":"s"} ·
+        frames ${tr.length?tr[0].frame+"–"+tr[tr.length-1].frame:"—"}
+        · <a href="#" data-ren="${g.id}" style="color:var(--acc)">rename</a></div>
+      ${tr.map(r=>`<div class="tr"><span class="f">f${r.frame} · ${r.t_hms}</span>
+        <span>#${r.trace_index} · ${r.n_points}pt</span>
+        <span class="st sv">saved</span>
+        <button data-go="${r.frame}">go</button><button data-del="${r.id}">✕</button></div>`).join("")}
+    </div>`;}).join("")||`<div class="kv">no groups yet — press <kbd>N</kbd></div>`;
+  document.querySelectorAll(".grp").forEach(e=>e.querySelector(".ghead").onclick=ev=>{
+    if(ev.target.tagName==="SELECT")return; curG=e.dataset.g; renderGroups(); draw();});
+  document.querySelectorAll("[data-t]").forEach(s=>s.onchange=()=>
+    saveGroup(s.dataset.t,{kt_type:s.value}));
+  document.querySelectorAll("[data-ren]").forEach(a=>a.onclick=ev=>{ev.preventDefault();
+    const g=GROUPS.find(x=>x.id===a.dataset.ren);
+    const v=prompt("Group name (e.g. 'polar KT 1')",g.label||"");
+    if(v!==null)saveGroup(g.id,{group_label:v});});
+  document.querySelectorAll("[data-go]").forEach(b=>b.onclick=()=>{curFrame=+b.dataset.go;$("#rng").value=curFrame;showFrame(curFrame);});
+  document.querySelectorAll("[data-del]").forEach(b=>b.onclick=()=>delRow(b.dataset.del));
+}
+
+/* ---------- frames ---------- */
+function showFrame(i){
+  if(!META)return;
+  curFrame=Math.max(0,Math.min(META.frames.length-1,i));
+  const f=META.frames[curFrame];
+  /* frame -> time: use the packaged clip's own uniform timebase (frame i == monitoring frame i),
+     NOT frames.json t_sec, which is the acquisition clock. */
+  const dur=vid.duration||1, n=META.frames.length;
+  vid.currentTime=Math.min(dur-1e-4,(curFrame+0.5)*(dur/n));
+  applyFollow();                      /* view tracks the KT; zoom level itself is untouched */
+  const zs=f.z>0||f.zrun>1;
+  $("#flab").innerHTML=`frame ${curFrame} / ${n-1}   t=${fmt(f.t_sec)}`+
+    (zs?` <span class="er">z-slice ${f.z+1}/${f.zrun}</span>`:"");
+  $("#zwarn").style.display=zs?"block":"none";
+}
+/* ---- ZOOM IS A PERSISTENT VIEWPORT, NOT A MODE ----
+   zoom/panX/panY are module state and are NEVER reset by a frame change, so scrubbing, playing and
+   stepping all keep the view. Only `fit` and loading a new batch reset it. The side panels are separate
+   grid columns, so nothing the zoom does can cover the comments / event times / tools. */
+function centreOn(cx,cy){
+  const W=$("#canwrap").clientWidth,H=$("#canwrap").clientHeight;
+  panX=W/2-cx*zoom; panY=H/2-cy*zoom;
+}
+function groupCentroidNear(frame){
+  if(!curG)return null;
+  const rs=ROWS.filter(r=>r.group_id===curG);
+  if(!rs.length)return null;
+  let best=rs[0],bd=1e9;
+  rs.forEach(r=>{const d=Math.abs(+r.frame-frame); if(d<bd){bd=d;best=r;}});
+  return [parseFloat(best.x),parseFloat(best.y)];
+}
+function applyFollow(){
+  if(!followOn)return;
+  const c=groupCentroidNear(curFrame);
+  if(c&&isFinite(c[0]))centreOn(c[0],c[1]);
+}
+function nextRealFrame(dir){            /* skip whole z-runs when stepping */
+  let i=curFrame+dir;
+  while(i>0&&i<META.frames.length-1&&META.frames[i].z>0)i+=dir;
+  return i;
+}
+function fmt(t){const s=Math.round(t),sg=s<0?"-":"",a=Math.abs(s);
+  return `${sg}${String(Math.floor(a/3600)).padStart(2,"0")}:${String(Math.floor(a%3600/60)).padStart(2,"0")}:${String(a%60).padStart(2,"0")}`;}
+function draw(){
+  if(!vid||!vid.videoWidth)return;
+  const W=$("#canwrap").clientWidth,H=$("#canwrap").clientHeight;
+  [cv,ov].forEach(c=>{c.width=W;c.height=H;});
+  ctx.fillStyle="#000";ctx.fillRect(0,0,W,H);
+  ctx.imageSmoothingEnabled=false;
+  ctx.drawImage(vid,panX,panY,vid.videoWidth*zoom,vid.videoHeight*zoom);
+  octx.clearRect(0,0,W,H);
+  /* saved traces on this frame + neighbours (faint) */
+  ROWS.forEach(r=>{
+    const gi=GROUPS.findIndex(g=>g.id===r.group_id),col=COLORS[(gi<0?0:gi)%COLORS.length];
+    const d=Math.abs(+r.frame-curFrame);
+    if(d>3)return;
+    poly(JSON.parse(r.points),col,d===0?2:1,d===0?1:0.22);
+  });
+  if(drawing&&drawing.pts.length)poly(drawing.pts,"#fff",2,1);
+}
+function poly(pts,col,w,alpha){
+  octx.save();octx.globalAlpha=alpha;octx.strokeStyle=col;octx.lineWidth=w;
+  octx.beginPath();
+  pts.forEach((p,i)=>{const x=p[0]*zoom+panX,y=p[1]*zoom+panY;i?octx.lineTo(x,y):octx.moveTo(x,y);});
+  octx.closePath();octx.stroke();octx.restore();
+}
+function zfit(){
+  if(!vid||!vid.videoWidth)return;
+  const W=$("#canwrap").clientWidth,H=$("#canwrap").clientHeight;
+  fitZ=Math.min(W/vid.videoWidth,H/vid.videoHeight);
+  zoom=fitZ;panX=(W-vid.videoWidth*zoom)/2;panY=(H-vid.videoHeight*zoom)/2;
+  $("#zlab").textContent=(zoom/fitZ).toFixed(1)+"×";draw();
+}
+function setZoom(z,cx,cy){
+  const W=$("#canwrap").clientWidth,H=$("#canwrap").clientHeight;
+  cx=cx??W/2; cy=cy??H/2;
+  const ix=(cx-panX)/zoom, iy=(cy-panY)/zoom;
+  zoom=Math.max(fitZ*0.5,Math.min(fitZ*40,z));
+  panX=cx-ix*zoom; panY=cy-iy*zoom;
+  $("#zlab").textContent=(zoom/fitZ).toFixed(1)+"×";draw();
+}
+
+/* ---------- drawing ---------- */
+const wrap=$("#canwrap");
+function toImg(e){const r=wrap.getBoundingClientRect();
+  return [(e.clientX-r.left-panX)/zoom,(e.clientY-r.top-panY)/zoom];}
+wrap.addEventListener("mousedown",e=>{
+  if(e.button===1||e.shiftKey){wrap._pan=[e.clientX,e.clientY,panX,panY];return;}
+  if(!curG){msg("make a group first — press <kbd>N</kbd>","er");return;}
+  drawing={pts:[toImg(e)]};
+});
+wrap.addEventListener("mousemove",e=>{
+  if(wrap._pan){panX=wrap._pan[2]+e.clientX-wrap._pan[0];panY=wrap._pan[3]+e.clientY-wrap._pan[1];draw();return;}
+  if(!drawing)return;
+  const p=toImg(e),l=drawing.pts[drawing.pts.length-1];
+  if(Math.hypot(p[0]-l[0],p[1]-l[1])*zoom>2){drawing.pts.push(p);draw();}
+});
+window.addEventListener("mouseup",()=>{
+  if(wrap._pan){wrap._pan=null;return;}
+  if(!drawing)return;
+  const pts=drawing.pts; drawing=null;
+  if(pts.length<3){draw();msg("too short — drag a full outline","er");return;}
+  saveTrace(pts);
+});
+wrap.addEventListener("wheel",e=>{e.preventDefault();
+  const r=wrap.getBoundingClientRect();
+  setZoom(zoom*(e.deltaY<0?1.15:1/1.15),e.clientX-r.left,e.clientY-r.top);},{passive:false});
+
+/* ---------- saving ---------- */
+async function saveTrace(pts){
+  const f=META.frames[curFrame],g=GROUPS.find(x=>x.id===curG);
+  msg("saving…");
+  const body={batch:B,group_id:curG,group_label:g?g.label:"",kt_type:g?g.kt_type:"other",
+    frame:curFrame,t_sec:f.t_sec,z_slice:f.z||0,z_run:f.zrun||1,
+    zoom_at_trace:+(zoom/fitZ).toFixed(2),
+    channel:chan,video_file:META.channels[chan],
+    points:pts,pixel_size_um:META.pixel_size_um,roi_x:META.roi.x,roi_y:META.roi.y};
+  localStorage.setItem("kt_draft_"+Date.now(),JSON.stringify(body));   /* crash net */
+  let j;
+  try{ j=await (await fetch("/save_outline",{method:"POST",headers:{"Content-Type":"application/json"},
+       body:JSON.stringify(body)})).json(); }
+  catch(err){ msg("SAVE FAILED (network) — trace kept in browser draft: "+err,"er"); return; }
+  if(!j.ok){ msg("SAVE REFUSED: "+j.error,"er"); return; }
+  await reloadRows();                        /* confirm against DISK, not against hope */
+  const there=ROWS.some(r=>r.id===j.row.id);
+  msg(there?`saved id ${j.row.id} · ${j.n_rows_for_batch} traces on disk for this cell`
+           :"WROTE BUT NOT FOUND ON RE-READ — stop and check", there?"sv":"er");
+  Object.keys(localStorage).filter(k=>k.startsWith("kt_draft_")).forEach(k=>localStorage.removeItem(k));
+  draw();
+}
+async function saveGroup(gid,fields){
+  const j=await (await fetch("/save_group",{method:"POST",headers:{"Content-Type":"application/json"},
+    body:JSON.stringify({batch:B,group_id:gid,...fields})})).json();
+  if(!j.ok){msg("group update refused: "+j.error,"er");return;}
+  const g=GROUPS.find(x=>x.id===gid); Object.assign(g,fields);
+  await reloadRows(); msg(`group updated (${j.touched} rows)`,"sv");
+}
+async function delRow(id){
+  if(!confirm("Delete this trace? (archived, not destroyed)"))return;
+  const j=await (await fetch("/delete_outline",{method:"POST",headers:{"Content-Type":"application/json"},
+    body:JSON.stringify({batch:B,id})})).json();
+  if(!j.ok){msg("delete refused: "+j.error,"er");return;}
+  await reloadRows(); draw(); msg("deleted (archived to "+j.archived+")","sv");
+}
+function newGroup(){
+  if(!B){msg("pick a batch first","er");return;}
+  const n=String(Math.max(0,...ROWS.map(r=>+r.group_id||0))+1);
+  const t=prompt("Kinetochore type ("+KT_TYPES.join(" / ")+")","polar");
+  if(t===null)return;
+  const lab=prompt("Name this kinetochore (optional)","")||"";
+  GROUPS.push({id:n,label:lab,kt_type:KT_TYPES.includes(t)?t:"other"});
+  curG=n; renderGroups(); msg(`group ${n} active — drag on the movie to trace`,"sv");
+}
+
+/* ---------- controls ---------- */
+$("#newg").onclick=newGroup;
+$("#zin").onclick=()=>setZoom(zoom*1.4);
+$("#zout").onclick=()=>setZoom(zoom/1.4);
+$("#zfit").onclick=zfit;
+$("#follow").onclick=()=>{followOn=!followOn;$("#follow").classList.toggle("on",followOn);
+  msg(followOn?"following the active kinetochore while you scrub":"follow off","sv");applyFollow();draw();};
+$("#recentre").onclick=()=>{const c=groupCentroidNear(curFrame);
+  if(!c){msg("this group has no trace yet","er");return;} centreOn(c[0],c[1]);draw();};
+$("#undo").onclick=()=>{if(drawing){drawing.pts.pop();draw();}};
+$("#clr").onclick=()=>{drawing=null;draw();};
+$("#pf").onclick=()=>{$("#rng").value=--curFrame;showFrame(curFrame);};
+$("#nf").onclick=()=>{$("#rng").value=++curFrame;showFrame(curFrame);};
+$("#rng").oninput=e=>showFrame(+e.target.value);
+$("#play").onclick=()=>{playing=!playing;$("#play").textContent=playing?"⏸":"▶";tick();};
+function tick(){ if(!playing)return;
+  curFrame=(curFrame+1)%META.frames.length;$("#rng").value=curFrame;showFrame(curFrame);
+  setTimeout(tick,1000/(META.fps_display||10)); }
+$("#chPhase").onclick=async()=>{if(!META.channels.phase)return;chan="phase";
+  $("#chPhase").classList.add("on");$("#chFluor").classList.remove("on");await loadVideo();showFrame(curFrame);};
+$("#chFluor").onclick=async()=>{if(!META.channels.fluor)return;chan="fluor";
+  $("#chFluor").classList.add("on");$("#chPhase").classList.remove("on");await loadVideo();showFrame(curFrame);};
+document.addEventListener("keydown",e=>{
+  if(e.target.tagName==="INPUT"||e.target.tagName==="SELECT")return;
+  if(e.key==="n"||e.key==="N")newGroup();
+  else if(e.key==="ArrowLeft"){const i=e.shiftKey?nextRealFrame(-1):curFrame-1;$("#rng").value=i;showFrame(i);}
+  else if(e.key==="ArrowRight"){const i=e.shiftKey?nextRealFrame(1):curFrame+1;$("#rng").value=i;showFrame(i);}
+  else if(e.key===" "){e.preventDefault();$("#play").click();}
+  else if(e.key==="+"||e.key==="=")setZoom(zoom*1.4);
+  else if(e.key==="-")setZoom(zoom/1.4);
+  else if(e.key==="f")zfit();
+});
+
+
+
+
+
+
+window.addEventListener("resize",zfit);
+setInterval(()=>{if(vid&&vid.readyState>=2)draw();},60);
+</script></body></html>

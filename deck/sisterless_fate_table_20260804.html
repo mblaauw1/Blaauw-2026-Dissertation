@@ -1,0 +1,23 @@
+<!doctype html><meta charset="utf-8"><title>Sisterless kinetochore fate</title>
+<style>
+body{font-family:-apple-system,Segoe UI,Helvetica,Arial,sans-serif;margin:32px;color:#1b1b1b;background:#fcfcfb}
+h1{font-size:19px;margin:0 0 4px}p.sub{color:#444;margin:0 0 18px;font-size:13px}
+table{border-collapse:collapse;font-size:13px}
+th{background:#eef1f5;color:#444;text-align:center;font-weight:600;padding:8px 12px;border:1px solid #c9ced6}
+th:first-child,td:first-child{text-align:left}
+td{padding:8px 12px;border:1px solid #d5d8dd;text-align:center;white-space:nowrap}
+tr.hit td{background:#fdf6e3}
+td.f{font-weight:600;text-align:left}
+.b{color:#3b6fb6;font-weight:600}.o{color:#e6820e;font-weight:600}
+.sig{font-weight:700}
+p.note{color:#666;font-size:11.5px;line-height:1.6;max-width:1050px;margin-top:16px}
+</style>
+<h1>Probability that one sisterless kinetochore meets each fate</h1>
+<p class="sub">1-sisterless vs 3-sisterless cells &middot; on-target, non-drug, non-excluded &middot; the unit is the <b>kinetochore</b>, so a 3-sisterless cell contributes three.</p>
+<table><thead><tr><th>fate</th><th>1-sis<br>P per KT</th><th>3-sis<br>P per KT</th><th>1-sis counts</th><th>3-sis counts</th><th>odds<br>ratio</th><th>Fisher p</th><th>Holm p</th><th>verdict</th></tr></thead><tbody>
+<tr class="hit"><td class="f">remains polar</td><td class="b">0.60</td><td class="o">0.34</td><td class="b">21/35 KTs &middot; 34 cells</td><td class="o">33/96 KTs &middot; 32 cells</td><td>2.86</td><td class="sig">0.0098</td><td class="sig">0.029</td><td style="color:#1a7f4f;font-weight:600">real difference</td></tr>
+<tr><td class="f">congresses</td><td class="b">0.29</td><td class="o">0.48</td><td class="b">10/35 KTs &middot; 34 cells</td><td class="o">46/96 KTs &middot; 32 cells</td><td>0.43</td><td class="">0.0716</td><td class="">0.143</td><td style="color:#a8791a;font-weight:600">suggestive</td></tr>
+<tr><td class="f">starts at the plate</td><td class="b">0.11</td><td class="o">0.18</td><td class="b">4/35 KTs &middot; 34 cells</td><td class="o">17/96 KTs &middot; 32 cells</td><td>0.60</td><td class="">0.5907</td><td class="">0.591</td><td style="color:#8a8a8a;font-weight:600">no evidence</td></tr>
+<tr><td class="f">becomes lagging</td><td class="b">0.33</td><td class="o">0.27</td><td class="b">15/45 KTs &middot; 45 cells</td><td class="o">26/96 KTs &middot; 32 cells</td><td>1.35</td><td class="">0.5510</td><td class="">&mdash;</td><td style="color:#8a8a8a;font-weight:600">no evidence</td></tr>
+</tbody></table>
+<p class="note"><b>Omnibus across the three congression fates: &chi;&sup2; = 6.96, df = 2, p = 0.0308.</b><br>Competition changes whether a sisterless kinetochore <b>reaches the plate</b> &mdash; 60% stay polar when alone vs 34% when there are three &mdash; but <b>not</b> whether it lags at anaphase.<br><br>Holm correction is applied only within the three congression fates, which are compositional (they sum to 1); lagging is a separate question from a separate source and carries its raw p.<br>The lagging row rests on a different, larger cell set (45 vs 34 cells for 1-sisterless): master <code># Lagging Chromosomes</code> counts from the 8817 pass, falling back to the cell-level Yes/No, equivalent only because n=1. The other three fates come from <code>CHROMOSOME_MASTER</code> <code>behavior</code>.<br>Cell-level tests on per-cell fractions agree in direction on all four rows but none survive Holm individually &mdash; the omnibus is the primary test.<br>One 1-sisterless cell (<code>20260420 ptk2 eyfp cdc20 1 ablation_20</code>) contributes 2 scored chromosomes, which is why 35 KTs come from 34 cells; removing it changes no conclusion.</p>

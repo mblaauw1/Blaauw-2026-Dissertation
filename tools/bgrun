@@ -1,0 +1,43 @@
+#!/bin/bash
+# bg — run ANY command in the background and return IMMEDIATELY.
+#
+# WHY THIS EXISTS (user, 2026-08-06): "you got hung up while you were trying to complete the tasks above
+# and werent reading or responding to my queued messages ... build infrastructure so that it stops
+# happening. im forced to halt your operations every time it does which wastes my time."
+#
+# Her messages only reach the assistant when a tool call RETURNS. Any foreground command that runs longer
+# than a few seconds makes the assistant unreachable for exactly that long. This removes the judgement
+# call: long work is never in the foreground, so a tool call can never block on it.
+#
+#   bgrun <name> <command...>   start a job, print one line, return at once
+#   bgstat [name]            status of all jobs, or one job + its log tail
+#   bgwait <name> [secs]     bounded wait (default 20s); returns whether or not it finished
+#
+# Logs:   /Volumes/4 MB/_claude_tools/logs/<name>.log
+# Status: /Volumes/4 MB/_claude_tools/logs/<name>.status   (RUNNING | OK | FAIL:<code>)
+set -u
+LOGDIR="/Volumes/4 MB/_claude_tools/logs"
+mkdir -p "$LOGDIR"
+[ $# -lt 2 ] && { echo "usage: bgrun <name> <command...>" >&2; exit 2; }
+NAME="$1"; shift
+
+LOG="$LOGDIR/$NAME.log"
+ST="$LOGDIR/$NAME.status"
+RUN="$LOGDIR/$NAME.run"
+
+: > "$LOG"
+echo "RUNNING" > "$ST"
+
+# Write the command to its own script so quoting is handled once, by the shell, not by nesting.
+{
+  echo '#!/bin/bash'
+  printf 'exec'
+  for a in "$@"; do printf ' %q' "$a"; done
+  printf '\n'
+} > "$RUN"
+chmod +x "$RUN"
+
+nohup bash -c '"$1" >> "$2" 2>&1; c=$?; if [ $c -eq 0 ]; then echo OK > "$3"; else echo "FAIL:$c" > "$3"; fi' \
+      _ "$RUN" "$LOG" "$ST" >/dev/null 2>&1 &
+
+echo "started [$NAME]  (bgstat $NAME)"
