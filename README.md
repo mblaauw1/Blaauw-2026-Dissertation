@@ -4,6 +4,15 @@ Source code for the laser-ablation kinetochore project: everything that **gather
 raw microscope acquisitions and everything that **makes the figures** currently placed in the five
 live Adobe Illustrator decks.
 
+## Layout
+
+Two folders, added 2026-08-31:
+
+* **`analysis_code/`** — everything this repository already held, unmoved: the pipeline, the annotation
+  tools, the figure library, the deck automation and the data-integrity tools. Nothing inside it changed.
+* **`figure_code/`** — the Python behind each figure piece in the dissertation, one file per piece,
+  named for the piece: `Figure 2A.py`, `Figure 4 - Supplement 1B.py`. See `figure_code/README.md`.
+
 This repository is **source only**. No image data, no annotation tables, no rendered figures and no
 `.ai` documents are tracked here — those live on the analysis drive (`/Volumes/4 MB`). Paths inside
 the scripts are absolute to that drive; the code is published as a record of method, not as a
@@ -22,7 +31,7 @@ chromosomes at anaphase, and Mad1/SAC signal at the ablated kinetochore.
 
 ## The decks these figures live in
 
-Figure placement is tracked in `config/DECKS.json`, which is the single place the deck paths are
+Figure placement is tracked in `analysis_code/config/DECKS.json`, which is the single place the deck paths are
 written down.
 
 | tag | role | file |
@@ -35,7 +44,7 @@ written down.
 | `pub0814` | main, publication copy | `META_FIGURES_20260814_PUBLICATION_20260820.ai` |
 | `pub0813` | supplemental, publication copy | `META_FIGURES_20260813_supplemental_PUBLICATION_20260820.ai` |
 
-**`docs/DECK_FIGURE_BUILDER_MAP.csv` maps every placed figure to the script in this repository that
+**`analysis_code/docs/DECK_FIGURE_BUILDER_MAP.csv` maps every placed figure to the script in this repository that
 generates it** — 828 distinct figures, 1,135 placements, 123 builder scripts, resolved from the
 Illustrator geometry dumps of 2026-08-21 together with `PLOT_SETTINGS.json`, which records the
 generating script for every registered figure.
@@ -45,19 +54,22 @@ generating script for every registered figure.
 ## Repository layout
 
 ```
-pipeline/            raw acquisition -> processed batch
-annotation_tools/    the browser tools the manual marks are made in
-kt_outline/          per-cell annotation packages + the slide servers (ports 8810-8820)
-kt_tracking/         TrackMate detection/tracking (`fiji/`) + the scoring harness that tuned it
-figures/             the figure library: lib.py, the shared measurement modules, every builder
-deck/                Illustrator automation (ExtendScript) that places and audits the decks
-dataops/             integrity checks, data repairs, audits, figure addressing, provenance tools
-tools/               small CLIs used while working (background jobs, deck freeze, task list)
-docs/                methods and provenance documentation
-config/              small registries the code reads (deck paths, accepted-loss registers)
+analysis_code/          the toolchain, unchanged -- every folder this repository already had
+  pipeline/            raw acquisition -> processed batch
+  annotation_tools/    the browser tools the manual marks are made in
+  kt_outline/          per-cell annotation packages + the slide servers (ports 8810-8820)
+  kt_tracking/         TrackMate detection/tracking (`fiji/`) + the scoring harness that tuned it
+  figures/             the figure library: lib.py, the shared measurement modules, every builder
+  deck/                Illustrator automation (ExtendScript) that places and audits the decks
+  dataops/             integrity checks, data repairs, audits, figure addressing, provenance tools
+  tools/               small CLIs used while working (background jobs, deck freeze, task list)
+  docs/                methods and provenance documentation
+  config/              small registries the code reads (deck paths, accepted-loss registers)
+
+figure_code/            one Python file per figure piece, named for the piece it makes
 ```
 
-### `pipeline/` — data gathering
+### `analysis_code/pipeline/` — data gathering
 
 `main.py` is the entry point. `discover.py` groups raw MicroManager `.ome.tif` acquisitions into
 **batches** (one batch = one cell), reads channel/exposure/pixel-size/stage metadata
@@ -75,7 +87,7 @@ reads:
 interval is not constant — it ranges from 10 s to 503 s between batches, so a timestamp is always
 read from the frame's own record.
 
-### `annotation_tools/` — where the measurements come from
+### `analysis_code/annotation_tools/` — where the measurements come from
 
 Nearly every quantity in this project is computed from **hand-drawn marks**, not from an automatic
 detector. `make_annotation_html.py` generates the browser annotation interface (frame-accurate
@@ -89,10 +101,10 @@ background disks — and the master spreadsheet carries a matching `<thing>_ids`
 every value is locatable in both directions.
 
 **Measured geometry is computed from those marks at analysis time; it is not stored as numbers in the
-master spreadsheet.** `docs/DATA_MODEL_AND_SOURCES.md` states which file holds what and which
+master spreadsheet.** `analysis_code/docs/DATA_MODEL_AND_SOURCES.md` states which file holds what and which
 script derives each quantity.
 
-### `figures/` — the figure library
+### `analysis_code/figures/` — the figure library
 
 `lib.py` is the shared base: it loads the master spreadsheet (two-row header), assigns cohorts and
 applies the standing exclusions, reads the 16-bit stacks, holds the palette, the journal style, the
@@ -117,20 +129,20 @@ Environment flags change what a run emits rather than what it measures: `PUB=1` 
 render), `PERCELL=1` (per-cell line variant), `KT_COHORT=mad1` (the Mad1 cohort instead of Cdc20),
 and several builders take `*_ONLY=<batch>` to render one cell instead of the whole set.
 
-`deck/archived_builders/` holds eleven generating scripts that exist **only** as the snapshot
+`analysis_code/deck/archived_builders/` holds eleven generating scripts that exist **only** as the snapshot
 `record_plot()` archived at build time — their original files are gone, and they are the sole source
 for the figures they make.
 
-### `dataops/` — keeping the data honest
+### `analysis_code/dataops/` — keeping the data honest
 
 `checks.py` runs 30 independent cross-checks over the master and every annotation store (row loss,
 duplicate ids, impossible event orders, id-mirror consistency, deck-path validity, publication-twin
 freshness). The rest are one-purpose tools: repairs that back up, write atomically and verify by
 re-reading; audits (`pseudoreplication_scan`, `exclusion_consistency`, `audit_ellipse_residue`,
 `stats_inventory`, `error_hunt`); and `figref.py`, which addresses any figure either by its
-deck/artboard/panel letter or by matching a pasted image against the placed figures.
+analysis_code/deck/artboard/panel letter or by matching a pasted image against the placed figures.
 
-### `deck/` — Illustrator automation
+### `analysis_code/deck/` — Illustrator automation
 
 ExtendScript passes that place figures, relink them, draw panel letters and legend bullets, dump
 deck geometry read-only, and audit for overlaps, broken links and aspect drift. Deck geometry is
@@ -160,7 +172,7 @@ Python 3 with `numpy`, `scipy`, `matplotlib`, `opencv-python` (`cv2`), `tifffile
 `scikit-image`, `scikit-learn`, `python-pptx`, `reportlab`, `PyMuPDF` (`fitz`), `imageio`.
 The Illustrator passes are ExtendScript (`.jsx`), driven through `osascript`.
 Kinetochore detection and tracking run headless in Fiji/TrackMate via the Groovy scripts in
-`kt_tracking/fiji/` — `kt_trackmate_v3.groovy` at `targetspf=20` is the operating point in use
+`analysis_code/kt_tracking/fiji/` — `kt_trackmate_v3.groovy` at `targetspf=20` is the operating point in use
 (87% recall against the manual marks on the benchmark set, chosen with `run_iter.py` +
 `score_vs_manual.py`).
 
@@ -168,4 +180,4 @@ Kinetochore detection and tracking run headless in Fiji/TrackMate via the Groovy
 
 Raw and processed image data, the annotation tables, the master spreadsheet, rendered figures, the
 `.ai` decks, and the ~3,100 per-figure code snapshots that `record_plot()` archives at build time
-(the eleven whose live builder no longer exists are included, in `deck/archived_builders/`).
+(the eleven whose live builder no longer exists are included, in `analysis_code/deck/archived_builders/`).
