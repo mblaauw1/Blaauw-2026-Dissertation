@@ -49,3 +49,8 @@ Every figure piece also has a recorded data spreadsheet — the table the plot w
 written by `lib.record_plot` at render time — plus the list of cells behind it and their movies. Those
 are not tracked here (this repository is source only); they live on the analysis drive under
 `PLOT_SOURCE_PACKAGES_20260831/`, in folders with these same names.
+
+The movies sit in two pools there, holding the same 2,089 clips under identical paths: `_MOVIES/` is the
+H.264 working pool (40 GB) that every manifest points at, and `_MOVIES_COMPRESSED_FOR_SHARING/` is an
+H.265 CRF 35 copy (8.4 GB) that exists only so they can be sent to someone. Neither is a measurement
+surface — `lib.FluorTif` reads the 16-bit TIFs, never the mp4s.
